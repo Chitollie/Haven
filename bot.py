@@ -36,20 +36,54 @@ STATES = {
     'stopping': '🟠 Arrêt en cours',
 }
 
+
 async def api_request(method, endpoint, payload=None):
     url = f'{PANEL_URL}/api/client/servers/{SERVER_ID}/{endpoint}'
+
     headers = {
         'Authorization': f'Bearer {API_KEY}',
         'Accept': 'Application/vnd.pterodactyl.v1+json',
         'Content-Type': 'application/json',
     }
+
     timeout = aiohttp.ClientTimeout(total=15)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.request(method, url, headers=headers, json=payload) as response:
-            if response.status not in (200, 204):
-                log.error('API Arkya HTTP %s', response.status)
-                raise RuntimeError('Erreur API Arkya')
-            return {} if response.status == 204 else await response.json()
+
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.request(
+                method,
+                url,
+                headers=headers,
+                json=payload
+            ) as response:
+
+                if response.status not in (200, 204):
+                    log.error(
+                        'API Arkya : erreur HTTP %s',
+                        response.status
+                    )
+
+                    raise RuntimeError(
+                        f'Erreur API Arkya HTTP {response.status}'
+                    )
+
+                if response.status == 204:
+                    return {}
+
+                return await response.json()
+
+    except aiohttp.ClientError as error:
+        log.error(
+            'Connexion API Arkya impossible : %s',
+            error
+        )
+        raise
+
+    except asyncio.TimeoutError:
+        log.error(
+            'API Arkya : délai de connexion dépassé'
+        )
+        raise
 
 async def get_status():
     data = await api_request('GET', 'resources')
