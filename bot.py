@@ -205,39 +205,90 @@ async def admin_error(interaction: discord.Interaction, error: app_commands.AppC
     else:
         await interaction.response.send_message(message, ephemeral=True)
 
+
 @tasks.loop(seconds=20)
 async def watch_haven():
     global last_ready
+
     try:
         ready = await is_ready()
-    except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError, KeyError, ValueError):
-        log.warning('Surveillance Haven : serveur ou API inaccessible')
+
+    except (
+        aiohttp.ClientError,
+        asyncio.TimeoutError,
+        RuntimeError,
+        KeyError,
+        ValueError
+    ):
+        log.exception(
+            'Surveillance Haven : serveur ou API inaccessible'
+        )
         return
 
-    # Au lancement du bot, initialiser l'état sans annoncer une ouverture ancienne.
+    # Initialiser l'état au lancement sans envoyer
+    # d'annonce pour une ouverture déjà existante.
     if last_ready is None:
         last_ready = ready
+        log.info(
+            'État initial de Haven : %s',
+            'En ligne' if ready else 'Hors ligne'
+        )
         return
+
+    # Serveur hors ligne
     if not ready:
+        if last_ready:
+            log.info('Haven vient de passer hors ligne')
+
         last_ready = False
         return
+
+    # Serveur déjà en ligne
     if last_ready:
         return
 
-    # Ne marquer comme annoncé qu'après un envoi réussi.
+    # Haven vient de démarrer
     try:
-        channel = bot.get_channel(CHANNEL_ID) or await bot.fetch_channel(CHANNEL_ID)
+        channel = (
+            bot.get_channel(CHANNEL_ID)
+            or await bot.fetch_channel(CHANNEL_ID)
+        )
+
         embed = discord.Embed(
             title='🟢 HAVEN EST OUVERT !',
-            description='Haven RP est prêt à accueillir les joueurs. Cliquez sur le bouton pour rejoindre le serveur.',
-            color=discord.Color.green(),
+            description=(
+                'Haven RP est prêt à accueillir les joueurs.\n\n'
+                'Cliquez sur le bouton pour rejoindre le serveur.'
+            ),
+            color=discord.Color.green()
         )
+
         view = discord.ui.View(timeout=None)
-        view.add_item(discord.ui.Button(label='Rejoindre Haven', emoji='🎮', style=discord.ButtonStyle.link, url=CFX_JOIN_URL))
-        await channel.send(embed=embed, view=view)
+
+        view.add_item(
+            discord.ui.Button(
+                label='Rejoindre Haven',
+                emoji='🎮',
+                style=discord.ButtonStyle.link,
+                url=CFX_JOIN_URL
+            )
+        )
+
+        await channel.send(
+            embed=embed,
+            view=view
+        )
+
         last_ready = True
+
+        log.info(
+            'Annonce d’ouverture Haven publiée avec succès'
+        )
+
     except (discord.DiscordException, AttributeError):
-        log.exception('Impossible de publier l’annonce Haven')
+        log.exception(
+            'Impossible de publier l’annonce Haven'
+        )
 
 @watch_haven.before_loop
 async def before_watch_haven():
