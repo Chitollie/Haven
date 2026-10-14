@@ -25,6 +25,7 @@ if not PANEL_URL.startswith('https://'):
     raise ValueError('PANEL_URL doit utiliser HTTPS.')
 
 intents = discord.Intents.default()
+intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 power_lock = asyncio.Lock()
 last_ready = None
@@ -36,54 +37,20 @@ STATES = {
     'stopping': '🟠 Arrêt en cours',
 }
 
-
 async def api_request(method, endpoint, payload=None):
     url = f'{PANEL_URL}/api/client/servers/{SERVER_ID}/{endpoint}'
-
     headers = {
         'Authorization': f'Bearer {API_KEY}',
         'Accept': 'Application/vnd.pterodactyl.v1+json',
         'Content-Type': 'application/json',
     }
-
     timeout = aiohttp.ClientTimeout(total=15)
-
-    try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.request(
-                method,
-                url,
-                headers=headers,
-                json=payload
-            ) as response:
-
-                if response.status not in (200, 204):
-                    log.error(
-                        'API Arkya : erreur HTTP %s',
-                        response.status
-                    )
-
-                    raise RuntimeError(
-                        f'Erreur API Arkya HTTP {response.status}'
-                    )
-
-                if response.status == 204:
-                    return {}
-
-                return await response.json()
-
-    except aiohttp.ClientError as error:
-        log.error(
-            'Connexion API Arkya impossible : %s',
-            error
-        )
-        raise
-
-    except asyncio.TimeoutError:
-        log.error(
-            'API Arkya : délai de connexion dépassé'
-        )
-        raise
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.request(method, url, headers=headers, json=payload) as response:
+            if response.status not in (200, 204):
+                log.error('API Arkya HTTP %s', response.status)
+                raise RuntimeError('Erreur API Arkya')
+            return {} if response.status == 204 else await response.json()
 
 async def get_status():
     data = await api_request('GET', 'resources')
@@ -205,90 +172,39 @@ async def admin_error(interaction: discord.Interaction, error: app_commands.AppC
     else:
         await interaction.response.send_message(message, ephemeral=True)
 
-
 @tasks.loop(seconds=20)
 async def watch_haven():
     global last_ready
-
     try:
         ready = await is_ready()
-
-    except (
-        aiohttp.ClientError,
-        asyncio.TimeoutError,
-        RuntimeError,
-        KeyError,
-        ValueError
-    ):
-        log.exception(
-            'Surveillance Haven : serveur ou API inaccessible'
-        )
+    except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError, KeyError, ValueError):
+        log.warning('Surveillance Haven : serveur ou API inaccessible')
         return
 
-    # Initialiser l'état au lancement sans envoyer
-    # d'annonce pour une ouverture déjà existante.
+    # Au lancement du bot, initialiser l'état sans annoncer une ouverture ancienne.
     if last_ready is None:
         last_ready = ready
-        log.info(
-            'État initial de Haven : %s',
-            'En ligne' if ready else 'Hors ligne'
-        )
         return
-
-    # Serveur hors ligne
     if not ready:
-        if last_ready:
-            log.info('Haven vient de passer hors ligne')
-
         last_ready = False
         return
-
-    # Serveur déjà en ligne
     if last_ready:
         return
 
-    # Haven vient de démarrer
+    # Ne marquer comme annoncé qu'après un envoi réussi.
     try:
-        channel = (
-            bot.get_channel(CHANNEL_ID)
-            or await bot.fetch_channel(CHANNEL_ID)
-        )
-
+        channel = bot.get_channel(CHANNEL_ID) or await bot.fetch_channel(CHANNEL_ID)
         embed = discord.Embed(
             title='🟢 HAVEN EST OUVERT !',
-            description=(
-                'Haven RP est prêt à accueillir les joueurs.\n\n'
-                'Cliquez sur le bouton pour rejoindre le serveur.'
-            ),
-            color=discord.Color.green()
+            description='Haven RP est prêt à accueillir les joueurs. Cliquez sur le bouton pour rejoindre le serveur.',
+            color=discord.Color.green(),
         )
-
         view = discord.ui.View(timeout=None)
-
-        view.add_item(
-            discord.ui.Button(
-                label='Rejoindre Haven',
-                emoji='🎮',
-                style=discord.ButtonStyle.link,
-                url=CFX_JOIN_URL
-            )
-        )
-
-        await channel.send(
-            embed=embed,
-            view=view
-        )
-
+        view.add_item(discord.ui.Button(label='Rejoindre Haven', emoji='🎮', style=discord.ButtonStyle.link, url=CFX_JOIN_URL))
+        await channel.send(embed=embed, view=view)
         last_ready = True
-
-        log.info(
-            'Annonce d’ouverture Haven publiée avec succès'
-        )
-
     except (discord.DiscordException, AttributeError):
-        log.exception(
-            'Impossible de publier l’annonce Haven'
-        )
+        log.exception('Impossible de publier l’annonce Haven')
 
 @watch_haven.before_loop
 async def before_watch_haven():
@@ -297,6 +213,7 @@ async def before_watch_haven():
 @bot.event
 async def setup_hook():
     bot.add_view(HavenView())
+    await community_setup(bot)
     await bot.tree.sync()
     watch_haven.start()
 
@@ -304,4 +221,5 @@ async def setup_hook():
 async def on_ready():
     log.info('Bot Haven connecté : %s', bot.user)
 
+from community import setup as community_setup
 bot.run(TOKEN)
