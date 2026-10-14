@@ -149,15 +149,15 @@ async def setup(bot: commands.Bot):
     @staff_only()
     async def touches(interaction: discord.Interaction):
         guide = ('**Touches GTA / FiveM courantes**\n'
-                 '• `Z` : menu des interactions GTA (selon configuration)\n'
-                 '• `T` : ouvrir le chat (si activé)\n'
+                 '• `W` : menu des interactions GTA\n'
+                 '• `T` : ouvrir le chat\n'
                  '• `Échap` : menu pause\n\n'
                  '**Touches spécifiques à Haven**\n'
-                 '• Inventaire : **à renseigner**\n'
-                 '• Téléphone : **à renseigner**\n'
-                 '• Interaction / cible : **à renseigner**\n'
-                 '• Radio : **à renseigner**\n'
-                 '• Menu personnage : **à renseigner**\n\n'
+                 '• Inventaire : **I**\n'
+                 '• Téléphone : **F1**\n'
+                 '• Interaction / cible : **Tab / E**\n'
+                 '• Radio : ****\n'
+                 '• Menu personnage : ****\n\n'
                  '*Les raccourcis peuvent être modifiés dans les paramètres FiveM.*')
         await interaction.response.send_message('⌨️ Guide publié.', ephemeral=True)
         await interaction.channel.send(embed=embed('⌨️ TOUCHES • HAVEN RP', guide))
