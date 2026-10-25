@@ -9,6 +9,8 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 import time
+from datetime import time as dtime
+from zoneinfo import ZoneInfo
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +40,7 @@ class HavenBot(commands.Bot):
         await community_setup(self)
         await self.tree.sync()
         watch_haven.start()
+        daily_restart.start()
 
     async def close(self):
         if self.session:
@@ -104,11 +107,13 @@ async def start_server():
         return 'started', state
 
 async def restart_server():
+    global last_start_at
     async with power_lock:
         state = await get_status()
         if state != 'running':
             return f'Redémarrage impossible : {STATES.get(state, state)}.'
         await api_request('POST', 'power', {'signal': 'restart'})
+        last_start_at = time.monotonic()
         return '🔄 Redémarrage de Haven demandé.'
 
 class HavenView(discord.ui.View):
@@ -233,7 +238,21 @@ async def try_auto_start():
     if code == 'started':
         failed_starts += 1
         log.info('Relance auto demandée (essai %s/%s)', failed_starts, MAX_FAILED_STARTS)
-        
+
+PARIS = ZoneInfo('Europe/Paris')
+
+@tasks.loop(time=dtime(hour=6, minute=0, tzinfo=PARIS))
+async def daily_restart():
+    try:
+        message = await restart_server()
+        log.info('Redémarrage quotidien : %s', message)
+    except Exception:
+        log.exception('Redémarrage quotidien échoué')
+
+@daily_restart.before_loop
+async def before_daily_restart():
+    await bot.wait_until_ready()
+    
 @tasks.loop(seconds=20)
 async def watch_haven():
     global last_ready, failed_starts
