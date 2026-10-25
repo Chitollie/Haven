@@ -176,13 +176,28 @@ class TouchesSelect(discord.ui.Select):
             discord.SelectOption(label='Communication', value='communication', emoji='🎙️'),
             discord.SelectOption(label='Administration', value='administration', emoji='🛡️'),
         ]
-        super().__init__(placeholder='Choisir une catégorie de touches…', min_values=1,
-                         max_values=1, options=options, custom_id='haven:touches:category')
+        super().__init__(
+            placeholder='Choisir une catégorie de touches…',
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id='haven:touches:category'
+        )
 
     async def callback(self, interaction: discord.Interaction):
         title, description = TOUCHES[self.values[0]]
-        await interaction.response.edit_message(embed=embed(title, description), ephemeral=True)
 
+        if interaction.message.flags.ephemeral:
+            await interaction.response.edit_message(
+                embed=embed(title, description),
+                view=TouchesView()
+            )
+        else:
+            await interaction.response.send_message(
+                embed=embed(title, description),
+                view=TouchesView(),
+                ephemeral=True
+            )
 class TouchesView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
