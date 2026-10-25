@@ -92,10 +92,112 @@ class TicketPanelView(discord.ui.View):
             await interaction.followup.send('❌ Il manque des permissions au bot (gérer les salons / voir la catégorie).', ephemeral=True)
         except discord.HTTPException:
             await interaction.followup.send('❌ Impossible de créer le ticket pour le moment.', ephemeral=True)
+            
+TOUCHES = {
+    'accueil': ('⌨️ TOUCHES ESSENTIELLES • HAVEN RP',
+        '**Déplacements et menus**\n'
+        '• `Z Q S D` : se déplacer (AZERTY)\n'
+        '• `Échap` : menu pause Haven\n'
+        '• `T` : chat (raccourci GTA habituel, à vérifier)\n'
+        '• `Tab` : inventaire / ox_target (conflit)\n'
+        '• `W` : menu radial ox_lib\n'
+        '• `F1` : téléphone Sky Phone\n'
+        '• `F12` : activer / couper le micro\n'
+        '• `F11` : portée de la voix\n'
+        '• `Alt` : parler à la radio\n'
+        '• `F5` : menu des emotes / bodycam (conflit)\n'
+        '\n**Attention :** plusieurs ressources utilisent les mêmes touches. '
+        'Vous pouvez modifier les raccourcis dans les paramètres FiveM.'),
+    'general': ('🎮 GÉNÉRAL',
+        '• `Échap` : menu pause Haven\n• `W` : menu radial ox_lib\n'
+        '• `Tab` : inventaire / ox_target (conflit)\n'
+        '• `F3` : interface carburant\n• `F10` : administration Gowhord\n'
+        '• `Maj G` : pousser un véhicule\n• `O` : changer de siège\n'
+        '• `K` : s’accroupir\n• `E` : interaction ascenseur / pousser / plaquer (selon contexte)'),
+    'vehicules': ('🚗 VÉHICULES',
+        '• `Y` : moteur (gowhord_vehicle)\n• `B` : ceinture\n'
+        '• `←` : clignotant gauche\n• `→` : clignotant droit\n'
+        '• `↓` : feux de détresse\n• `J` : régulateur de vitesse\n'
+        '• `F9` : radio du véhicule\n• `L` : verrouiller / déverrouiller\n'
+        '• `H` : chercher les clés\n• `O` : changer de siège\n'
+        '• `E` / `Maj G` : pousser un véhicule'),
+    'police': ('🚓 POLICE ET SECOURS',
+        '• `F6` : menu métier police / vue bodycam (conflit)\n'
+        '• `F4` : lecteur de plaques\n'
+        '• `F5` : activer / désactiver la bodycam (conflit emotes)\n'
+        '• `R` : réapparition ambulance lorsque disponible\n'
+        '• `R` : recharger une arme (conflit contextuel)'),
+    'inventaire': ('🎒 INVENTAIRE',
+        '• `Tab` : ouvrir l’inventaire / ox_target (conflit)\n'
+        '• `L` : inventaire secondaire (conflit verrouillage)\n'
+        '• `R` : recharger une arme\n'
+        '• `&` : objet rapide 1\n• `é` : objet rapide 2\n'
+        '• `"` : objet rapide 3\n• `\'` : objet rapide 4\n'
+        '• `(` : objet rapide 5'),
+    'interactions': ('🤝 INTERACTIONS',
+        '• `Tab` : ox_target (conflit inventaire)\n'
+        '• `W` : menu radial\n'
+        '• `Y` : accepter une demande (conflit moteur)\n'
+        '• `N` : refuser une demande\n'
+        '• `X` : arrêter une interaction / se relever\n'
+        '• `E` : interactions contextuelles\n'
+        '• `G` : menu de production Central Distribution (selon proximité)'),
+    'emotes': ('🎭 EMOTES',
+        '• `F5` : menu des emotes\n• `X` : annuler une emote\n'
+        '• `G` : effet d’emote\n• `H` : mains en l’air\n'
+        '• `B` : pointer\n• `Ctrl G` : posture\n'
+        '• `U` : tomber\n'
+        '• Raccourcis d’emotes 1 à 6 : touches non attribuées sur les captures'),
+    'communication': ('🎙️ COMMUNICATION',
+        '• `F12` : couper / activer le micro Haven\n'
+        '• `F11` : changer la portée vocale\n'
+        '• `Alt` : parler à la radio\n'
+        '• `+` (pavé numérique) : push-to-talk secondaire\n'
+        '• `F1` : téléphone Sky Phone\n'
+        '• `5` (pavé numérique) : ping CrewLink\n'
+        '• `T` : ouvrir le chat (raccourci habituel à vérifier)'),
+    'administration': ('🛡️ ADMINISTRATION',
+        '• `F10` : ouvrir Gowhord Admin\n'
+        '• `F6` : menu police (si métier autorisé)\n'
+        '• `G` : Central Distribution, point de production (si autorisé)\n'
+        '• `Noclip` : raccourci affiché par FiveM, à vérifier dans les paramètres'),
+}
+
+class TouchesSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label='Accueil', value='accueil', emoji='🏠'),
+            discord.SelectOption(label='Général', value='general', emoji='🎮'),
+            discord.SelectOption(label='Véhicules', value='vehicules', emoji='🚗'),
+            discord.SelectOption(label='Police et secours', value='police', emoji='🚓'),
+            discord.SelectOption(label='Inventaire', value='inventaire', emoji='🎒'),
+            discord.SelectOption(label='Interactions', value='interactions', emoji='🤝'),
+            discord.SelectOption(label='Emotes', value='emotes', emoji='🎭'),
+            discord.SelectOption(label='Communication', value='communication', emoji='🎙️'),
+            discord.SelectOption(label='Administration', value='administration', emoji='🛡️'),
+        ]
+        super().__init__(placeholder='Choisir une catégorie de touches…', min_values=1,
+                         max_values=1, options=options, custom_id='haven:touches:category')
+
+    async def callback(self, interaction: discord.Interaction):
+        title, description = TOUCHES[self.values[0]]
+        await interaction.response.edit_message(embed=embed(title, description), ephemeral=True)
+
+class TouchesView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(TouchesSelect())
+
+    @discord.ui.button(label='Accueil', emoji='🏠', style=discord.ButtonStyle.secondary,
+                       custom_id='haven:touches:home', row=1)
+    async def home(self, interaction: discord.Interaction, button: discord.ui.Button):
+        title, description = TOUCHES['accueil']
+        await interaction.response.edit_message(embed=embed(title, description), view=TouchesView())
 
 async def setup(bot: commands.Bot):
     bot.add_view(TicketPanelView())
     bot.add_view(CloseTicketView())
+    bot.add_view(TouchesView())
 
     @bot.event
     async def on_member_join(member: discord.Member):
@@ -148,19 +250,12 @@ async def setup(bot: commands.Bot):
     @app_commands.guild_only()
     @staff_only()
     async def touches(interaction: discord.Interaction):
-        guide = ('**Touches GTA / FiveM courantes**\n'
-                 '• `Z` : menu des interactions GTA (selon configuration)\n'
-                 '• `T` : ouvrir le chat (si activé)\n'
-                 '• `Échap` : menu pause\n\n'
-                 '**Touches spécifiques à Haven**\n'
-                 '• Inventaire : **à renseigner**\n'
-                 '• Téléphone : **à renseigner**\n'
-                 '• Interaction / cible : **à renseigner**\n'
-                 '• Radio : **à renseigner**\n'
-                 '• Menu personnage : **à renseigner**\n\n'
-                 '*Les raccourcis peuvent être modifiés dans les paramètres FiveM.*')
         await interaction.response.send_message('⌨️ Guide publié.', ephemeral=True)
-        await interaction.channel.send(embed=embed('⌨️ TOUCHES • HAVEN RP', guide))
+        title, description = TOUCHES['accueil']
+        await interaction.channel.send(
+            embed=embed(title, description),
+            view=TouchesView()
+        )
 
     @bot.tree.error
     async def community_errors(interaction: discord.Interaction, error: app_commands.AppCommandError):
