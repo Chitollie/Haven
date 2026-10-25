@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -26,10 +27,32 @@ if not PANEL_URL.startswith('https://'):
 
 intents = discord.Intents.default()
 intents.members = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+class HavenBot(commands.Bot):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.session = None
+
+    async def setup_hook(self):
+        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
+        self.add_view(HavenView())
+        await community_setup(self)
+        await self.tree.sync()
+        watch_haven.start()
+
+    async def close(self):
+        if self.session:
+            await self.session.close()
+        await super().close()
+
+bot = HavenBot(command_prefix='!', intents=intents)
 power_lock = asyncio.Lock()
 last_ready = None
 
+START_COOLDOWN = 180
+MAX_FAILED_STARTS = 3
+last_start_at = None
+failed_starts = 0
+auto_start_enabled = True
 STATES = {
     'offline': '🔴 Hors ligne',
     'starting': '🟡 Démarrage',
@@ -41,39 +64,44 @@ async def api_request(method, endpoint, payload=None):
     url = f'{PANEL_URL}/api/client/servers/{SERVER_ID}/{endpoint}'
     headers = {
         'Authorization': f'Bearer {API_KEY}',
-        'Accept': 'Application/vnd.pterodactyl.v1+json',
+        'Accept': 'application/vnd.pterodactyl.v1+json',
         'Content-Type': 'application/json',
     }
-    timeout = aiohttp.ClientTimeout(total=15)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.request(method, url, headers=headers, json=payload) as response:
-            if response.status not in (200, 204):
-                log.error('API Arkya HTTP %s', response.status)
-                raise RuntimeError('Erreur API Arkya')
-            return {} if response.status == 204 else await response.json()
+    async with bot.session.request(method, url, headers=headers, json=payload) as response:
+        if response.status not in (200, 204):
+            log.error('API Arkya HTTP %s', response.status)
+            raise RuntimeError('Erreur API Arkya')
+        return {} if response.status == 204 else await response.json()
 
 async def get_status():
     data = await api_request('GET', 'resources')
     return data['attributes']['current_state']
 
-async def is_ready():
-    if await get_status() != 'running':
-        return False
-    timeout = aiohttp.ClientTimeout(total=6)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(FIVEM_INFO_URL) as response:
+async def fivem_responds():
+    try:
+        async with bot.session.get(FIVEM_INFO_URL, timeout=aiohttp.ClientTimeout(total=6)) as response:
             if response.status != 200:
                 return False
             data = await response.json(content_type=None)
             return isinstance(data, dict) and 'server' in data
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+        return False
+
+def cooldown_active():
+    return last_start_at is not None and time.monotonic() - last_start_at < START_COOLDOWN
 
 async def start_server():
+    """Renvoie (code, état) avec code = 'started', 'already' ou 'cooldown'."""
+    global last_start_at
     async with power_lock:
         state = await get_status()
         if state != 'offline':
-            return f'Haven est déjà dans cet état : {STATES.get(state, state)}.'
+            return 'already', state
+        if cooldown_active():
+            return 'cooldown', state
         await api_request('POST', 'power', {'signal': 'start'})
-        return '🟡 Démarrage de Haven demandé. Une annonce sera envoyée dès que le serveur sera prêt.'
+        last_start_at = time.monotonic()
+        return 'started', state
 
 async def restart_server():
     async with power_lock:
@@ -88,32 +116,40 @@ class HavenView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(discord.ui.Button(label='Se connecter', emoji='🎮', style=discord.ButtonStyle.link, url=CFX_JOIN_URL))
 
-    @discord.ui.button(label='Démarrer Haven', emoji='🟢', style=discord.ButtonStyle.success, custom_id='haven:start:v1')
-    async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            message = await start_server()
-        except Exception:
-            log.exception('Erreur démarrage')
-            message = '❌ Démarrage impossible. Consulte les logs du bot.'
-        await interaction.followup.send(message, ephemeral=True)
+    #@discord.ui.button(label='Démarrer Haven', emoji='🟢', style=discord.ButtonStyle.success, custom_id='haven:start:v1')
+    #async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        #await interaction.response.defer(ephemeral=True)
+        #try:
+            #message = await start_server()
+        #except Exception:
+            #log.exception('Erreur démarrage')
+            #message = '❌ Démarrage impossible. Consulte les logs du bot.'
+        #await interaction.followup.send(message, ephemeral=True)
 
-    @discord.ui.button(label='État du serveur', emoji='📡', style=discord.ButtonStyle.secondary, custom_id='haven:status:v1')
-    async def status_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            state = await get_status()
-            message = f'Haven : {STATES.get(state, state)}'
-        except Exception:
-            log.exception('Erreur statut')
-            message = '❌ Statut indisponible.'
-        await interaction.followup.send(message, ephemeral=True)
+    #@discord.ui.button(label='État du serveur', emoji='📡', style=discord.ButtonStyle.secondary, custom_id='haven:status:v1')
+    #async def status_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        #await interaction.response.defer(ephemeral=True)
+        #try:
+            #state = await get_status()
+            #message = f'Haven : {STATES.get(state, state)}'
+        #except Exception:
+            #log.exception('Erreur statut')
+            #message = '❌ Statut indisponible.'
+        #await interaction.followup.send(message, ephemeral=True)
 
 @bot.tree.command(name='start', description='Démarrer Haven')
+@app_commands.default_permissions(administrator=True)
+@app_commands.checks.has_permissions(administrator=True)
 async def start_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     try:
-        message = await start_server()
+        code, state = await start_server()
+        if code == 'started':
+            message = '🟡 Démarrage de Haven demandé. Une annonce sera envoyée dès que le serveur sera prêt.'
+        elif code == 'cooldown':
+            message = '⏳ Un démarrage vient d’être demandé, patiente quelques minutes.'
+        else:
+            message = f'Haven est déjà dans cet état : {STATES.get(state, state)}.'
     except Exception:
         log.exception('Erreur /start')
         message = '❌ Démarrage impossible.'
@@ -152,13 +188,26 @@ async def panel_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     embed = discord.Embed(
         title='🎮 HAVEN RP',
-        description='Bienvenue sur Haven ! Démarrez le serveur, consultez son état ou rejoignez-le avec les boutons ci-dessous.',
+        description='Bienvenue sur Haven ! Rejoignez-le avec le boutons ci-dessous.',
         color=discord.Color.from_rgb(108, 140, 255),
     )
     embed.set_footer(text='Haven RP • Inclusif et convivial')
     await interaction.channel.send(embed=embed, view=HavenView())
     await interaction.followup.send('✅ Panneau publié.', ephemeral=True)
 
+@bot.tree.command(name='auto', description='Activer ou couper la relance automatique (administrateurs)')
+@app_commands.default_permissions(administrator=True)
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(actif='True = relance automatique, False = mode maintenance')
+async def auto_command(interaction: discord.Interaction, actif: bool):
+    global auto_start_enabled, failed_starts
+    auto_start_enabled = actif
+    failed_starts = 0
+    etat = 'activée' if actif else 'désactivée (maintenance)'
+    await interaction.response.send_message(f'✅ Relance automatique {etat}.', ephemeral=True)
+
+@start_command.error
+@auto_command.error
 @restart_command.error
 @panel_command.error
 async def admin_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -171,17 +220,42 @@ async def admin_error(interaction: discord.Interaction, error: app_commands.AppC
         await interaction.followup.send(message, ephemeral=True)
     else:
         await interaction.response.send_message(message, ephemeral=True)
-
+        
+async def try_auto_start():
+    global failed_starts, auto_start_enabled
+    if cooldown_active():
+        return
+    if failed_starts >= MAX_FAILED_STARTS:
+        auto_start_enabled = False
+        log.error('Relance auto désactivée : %s démarrages sans succès', failed_starts)
+        return
+    code, _ = await start_server()
+    if code == 'started':
+        failed_starts += 1
+        log.info('Relance auto demandée (essai %s/%s)', failed_starts, MAX_FAILED_STARTS)
+        
 @tasks.loop(seconds=20)
 async def watch_haven():
-    global last_ready
+    global last_ready, failed_starts
     try:
-        ready = await is_ready()
-    except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError, KeyError, ValueError):
-        log.warning('Surveillance Haven : serveur ou API inaccessible')
+        state = await get_status()
+        ready = state == 'running' and await fivem_responds()
+    except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError, KeyError):
+        log.warning('Surveillance Haven : API du panel inaccessible')
+        return
+    except Exception:
+        log.exception('Surveillance Haven : erreur inattendue')
         return
 
-    # Au lancement du bot, initialiser l'état sans annoncer une ouverture ancienne.
+    # Relance automatique
+    if state == 'running':
+        failed_starts = 0
+    elif state == 'offline' and auto_start_enabled:
+        try:
+            await try_auto_start()
+        except Exception:
+            log.exception('Relance automatique échouée')
+
     if last_ready is None:
         last_ready = ready
         return
@@ -191,7 +265,6 @@ async def watch_haven():
     if last_ready:
         return
 
-    # Ne marquer comme annoncé qu'après un envoi réussi.
     try:
         channel = bot.get_channel(CHANNEL_ID) or await bot.fetch_channel(CHANNEL_ID)
         embed = discord.Embed(
@@ -209,13 +282,6 @@ async def watch_haven():
 @watch_haven.before_loop
 async def before_watch_haven():
     await bot.wait_until_ready()
-
-@bot.event
-async def setup_hook():
-    bot.add_view(HavenView())
-    await community_setup(bot)
-    await bot.tree.sync()
-    watch_haven.start()
 
 @bot.event
 async def on_ready():
